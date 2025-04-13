@@ -38,7 +38,7 @@ const Chatbot = () => {
     conference: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
   };
 
-  const LLM_WORKER_URL = 'https://pi360-llm-session-history.theshinchangupta.workers.dev'; // Updated to match your deployed URL
+  const LLM_WORKER_URL = 'https://pi360-chatbot-rag.theshinchangupta.workers.dev'; // Updated to match your deployed URL
 
   const clearConversation = () => {
     setMessages([]);
