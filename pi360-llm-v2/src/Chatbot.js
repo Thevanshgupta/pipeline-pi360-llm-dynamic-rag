@@ -6,25 +6,24 @@ const Chatbot = () => {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [activeSection, setActiveSection] = useState('students');
-  const [conversationHistory, setConversationHistory] = useState([]); // For storing prompt-response pairs
-  const [showHistory, setShowHistory] = useState(false); // Toggle for UI display
+  const [conversationHistory, setConversationHistory] = useState([]);
+  const [showHistory, setShowHistory] = useState(false);
   const chatWindowRef = useRef(null);
 
   const WORKER_URLS = {
     workshop: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
     students: 'https://pi360-sql-generator.karan-cse.workers.dev',
     training: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
-    research: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
+    research: 'https://pi360-chatbot-rag.theshinchangupta.workers.dev',
     seminar: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
     conference: 'https://pi360-rag-sql-generator.theshinchangupta.workers.dev',
   };
 
-  // Helper function to maintain sliding window of conversation history
+  // Helper function to maintain conversation history
   const updateConversationHistory = (newPair) => {
     setConversationHistory(prev => {
       const updatedHistory = [...prev, newPair];
-      // Keep only the last 3 pairs if history exceeds size
-      return updatedHistory.slice(Math.max(updatedHistory.length - 3, 0));
+      return updatedHistory.slice(-3); // Keep only last 3 exchanges
     });
   };
 
@@ -52,19 +51,22 @@ const Chatbot = () => {
     document.body.removeChild(link);
   };
 
-  const beautifyResponse = async (responseContent, userQuery) => {
+  const beautifyResponse = async (responseContent, userQuery, history) => {
     try {
-      const systemMessage = `You are a data analyst. You have been given a task to analyze the data and provide a response. 
-      You have to take the data and reply it in a beautiful way.
-      Response should be given in 3 lines only and for one word give it one word.`;
-  
+      const systemMessage = `You are a conversational data analyst. Use the conversation history to provide contextual responses.
+      Current conversation history: ${JSON.stringify(history.map(h => ({
+        user: h.prompt,
+        bot: h.response.beautified
+      })))}
+      Provide responses that continue the conversation naturally.`;
+
       const response = await fetch('https://pi360-deepseek-model.theshinchangupta.workers.dev', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: [
-            { role: 'system', content: `${systemMessage}\n\nDATA: ${JSON.stringify(responseContent)}` },
-            { role: 'user', content: `Create response for and please remove the extra data from the response like give a small and accurate data remove the things that are not required like extra make it professional: "${userQuery}"` }
+            { role: 'system', content: systemMessage },
+            { role: 'user', content: `Analyze this data and respond conversationally to: "${userQuery}"\n\nDATA: ${JSON.stringify(responseContent)}` }
           ],
         }),
       });
@@ -84,11 +86,10 @@ const Chatbot = () => {
       };
   
       return cleanResponse(beautified);
-  
     } catch (error) {
       console.error('Formatting Error:', error);
       const value = Object.values(responseContent)[0] || 0;
-      return `There were ${value.toLocaleString()} during 2024.`;
+      return `There were ${value.toLocaleString()} records found.`;
     }
   };
 
@@ -136,25 +137,19 @@ const Chatbot = () => {
     setIsLoading(true);
 
     try {
-      // Prepare payload with conversation history
-      const historyPayload = conversationHistory.map(pair => ({
-        user: pair.prompt,
-        assistant: pair.response.beautified
-      }));
+      // Prepare context-aware payload
+      const context = conversationHistory.flatMap(pair => [
+        { role: 'user', content: pair.prompt },
+        { role: 'assistant', content: pair.response.beautified }
+      ]);
 
-      const payload = activeSection === 'students'
-        ? { 
-            content: input, 
-            section: activeSection,
-            history: historyPayload 
-          }
-        : { 
-            schemaName: activeSection, 
-            content: input,
-            history: historyPayload
-          };
+      const payload = {
+        content: input,
+        section: activeSection,
+        context: context.slice(-6) // Last 3 exchanges (6 messages)
+      };
 
-      console.log(`Sending request to ${WORKER_URLS[activeSection]} with payload:`, payload);
+      console.log('Sending payload with context:', payload);
 
       const workerResponse = await fetch(WORKER_URLS[activeSection], {
         method: 'POST',
@@ -170,8 +165,6 @@ const Chatbot = () => {
       const workerData = await workerResponse.json();
       const sqlQuery = workerData.query;
 
-      console.log('Generated SQL:', sqlQuery);
-
       const encodedQuery = btoa(sqlQuery);
       const chatResponse = await fetch(
         `https://pi360.net/site/api/endpoints/chat.php?institute_id=mietjammu&secret=R0dqSDg3Njc2cC00NCNAaHg=&query=${encodedQuery}`
@@ -185,7 +178,7 @@ const Chatbot = () => {
       const chatData = await chatResponse.json();
       
       if (chatData.response_code === "200") {
-        const beautified = await beautifyResponse(chatData.content, input);
+        const beautified = await beautifyResponse(chatData.content, input, conversationHistory);
         
         const responseData = {
           sql: sqlQuery,
@@ -193,7 +186,6 @@ const Chatbot = () => {
           beautified: beautified
         };
 
-        // Update the conversation history with the new prompt-response pair
         updateConversationHistory({
           prompt: input,
           response: responseData
@@ -245,54 +237,37 @@ const Chatbot = () => {
   return (
     <div className="chatbot-container">
       <div className="section-selector">
-        <button 
-          className={activeSection === 'students' ? 'active' : ''} 
-          onClick={() => setActiveSection('students')}
-        >
-          Students & Placements
-        </button>
-        <button 
-          className={activeSection === 'research' ? 'active' : ''} 
-          onClick={() => setActiveSection('research')}
-        >
-          Research
-        </button>
-        <button 
-          className={activeSection === 'training' ? 'active' : ''} 
-          onClick={() => setActiveSection('training')}
-        >
-          Training
-        </button>
-        <button 
-          className={activeSection === 'seminar' ? 'active' : ''} 
-          onClick={() => setActiveSection('seminar')}
-        >
-          Seminar
-        </button>
-        <button 
-          className={activeSection === 'conference' ? 'active' : ''} 
-          onClick={() => setActiveSection('conference')}
-        >
-          Conferences
-        </button>
-        <button 
-          className={activeSection === 'workshop' ? 'active' : ''} 
-          onClick={() => setActiveSection('workshop')}
-        >
-          Workshops
-        </button>
+        {Object.keys(WORKER_URLS).map(section => (
+          <button
+            key={section}
+            className={activeSection === section ? 'active' : ''}
+            onClick={() => setActiveSection(section)}
+          >
+            {section.charAt(0).toUpperCase() + section.slice(1)}
+          </button>
+        ))}
       </div>
       
-      {/* Conversation history toggle and display */}
-      <div className="history-toggle">
-        <button onClick={() => setShowHistory(!showHistory)}>
-          {showHistory ? 'Hide History' : 'Show History'}
+      <div className="history-controls">
+        <button 
+          className="history-toggle"
+          onClick={() => setShowHistory(!showHistory)}
+        >
+          {showHistory ? 'Hide Context' : 'Show Context'}
         </button>
+        {showHistory && (
+          <button 
+            className="clear-history"
+            onClick={() => setConversationHistory([])}
+          >
+            Clear Context
+          </button>
+        )}
       </div>
-      
+
       {showHistory && conversationHistory.length > 0 && (
         <div className="conversation-history">
-          <h3>Conversation History</h3>
+          <h3>Conversation Context</h3>
           <ul>
             {conversationHistory.map((pair, index) => (
               <li key={index} className="history-item">
@@ -309,8 +284,10 @@ const Chatbot = () => {
           <div key={message.id} className="message-container">
             <div className={`message ${message.type}`}>
               <div className="message-content">
-                {message.type === 'user' && (
+                {message.type === 'user' ? (
                   <div className="user-icon">You</div>
+                ) : (
+                  <div className="bot-icon">Bot</div>
                 )}
                 <div className="text-content">{message.content}</div>
               </div>
