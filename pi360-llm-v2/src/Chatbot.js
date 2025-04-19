@@ -223,7 +223,7 @@ const Chatbot = () => {
     
     return (
       <div className="bot-response">
-        <div className="sql-query">Generated SQL: {response.sql}</div>
+        {/* <div className="sql-query">Generated SQL: {response.sql}</div> */}
         <div className="beautified-response">{response.beautified}</div>
         {renderTable(response.rawData)}
       </div>
